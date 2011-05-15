@@ -7,50 +7,73 @@
 %% </p>
 
 -module(worker).
--export([start_uploader/0, start_downloader/0, init/3]).
+-export([start_uploader/2, start_downloader/4, init/2, content/0, uploader_loop/1]).
 -include_lib("eunit/include/eunit.hrl").
+-define(UPLOADPORT, 6789).
 
+content() ->
+    Content = 
+	[
+		{"Filename1", 10, [1, 2, 3]},
+		{"Filename2", 2, all},
+		{"Filename3", 2, [1]}
+	],
+    utils:generate_content_string(Content).
 
 %% @doc Starts a worker and listens for requests
 %% <p>
 %% Dummy function for starting a predefined worker which
 %% connects to a hive and then listens for connections.
 %% </p>
-start_uploader() -> 
-	Content = 
-	[
-		{"Filename1", 10, [1, 2, 3]},
-		{"Filename2", 2, all},
-		{"Filename3", 2, [1]}
-	],
-	io:format("<uploader> starting~n"),
-	init("localhost", 5678, utils:generate_content_string(Content)),
-	io:format("<uploader> listening for requests~n"),
-	network:listen(6789, fun send_piece/1).
-	
+start_uploader(Key, Sock) -> 
+    
+    io:format("<uploader> starting~n"),
+    network:send(Sock, Key, content()),
+	%timer:sleep(1000),
+	LSock = network:listenInit(0),
+	{ok, PSock} = inet:port(LSock),
+	SSock = lists:flatten(io_lib:format("~p", [PSock])),
+	io:format("<uploader> printing Listening Port: ~w~n", [SSock]),
+	network:send(Sock, Key, SSock),
+	%network:send(Sock, Key, 
+    io:format("<uploader> listening for requests~n"),
+    uploader_loop(LSock).
+
+uploader_loop(Sock) ->
+	case network:listen(sock, Sock, fun send_piece/1) of
+	{error, Reason} ->
+			io:format("<uploader> Could not listen: ~s~n", [Reason]);
+	eol -> io:format("<<<<send_piece done>>>>~n"),uploader_loop(Sock);
+	_ -> io:format(" Wtf? ~n")
+	end.
 
 %% @doc Starts a worker and sends a request
 %% <p>
 %% Dummy function for starting a predefined worker which
 %% connects to a hive and then requests a file.
 %% </p>
-start_downloader() -> 
+start_downloader(FileName, Key, Sock, LSock) ->
 	io:format("<downloader> starting~n"),
-	Key = init("localhost", 5678, utils:generate_content_string([])),
 	io:format("<downloader> sending request for file~n"),
-	{ok, Sock} = network:conn("localhost", 5678),
-	network:send(Sock, Key, "request"),
+	%{ok, Sock} = network:conn("localhost", 5678),
+	network:send(Sock, Key, "request"), %Stuck here...
+	timer:sleep(100),
+	{ok, PSock} = inet:port(LSock),
+	SSock = lists:flatten(io_lib:format("~p", [PSock])),
+	io:format("<downloader> printing Listening Port: ~s~n", [SSock]),
+	network:send(Sock, Key, SSock),
+	network:close(Sock),
 	io:format("<downloader> listening for piece~n"),
-	network:listen(4567, fun accept_piece/1),
+	network:listen(sock, LSock, fun accept_piece/1),
 	io:format("<downloader> dying~n").
 
-	
+
 %% @doc Starts a worker
 %% <p>
 %% Starts a worker, carrying the content Content and
 %% connects to the drone on Address:Port.
 %% </p>
-init(Address, Port, Content) ->
+init(Address, Port) ->
 	io:format("<worker> entering hive~n"),
 	case network:conn(Address, Port) of
 	
@@ -68,9 +91,11 @@ init(Address, Port, Content) ->
 					io:format("<worker> entered hive successfully~n"),
 					% TODO: handle errors
 					io:format("<worker> sending content list~n"),
-					network:send(Sock, Key, Content),
+					spawn(worker, start_uploader, [Key, Sock]),
+					timer:sleep(1000),
 					io:format("<worker> closing connection~n"),
 					network:close(Sock),
+					io:format("<worker> socket: ~w~n", [Sock]),
 					Key
 			end
 	end.
@@ -83,21 +108,24 @@ init(Address, Port, Content) ->
 %% </p>
 send_piece(Sock) ->
 	io:format("<worker> incoming request from drone~n"),
-	
+	io:format("<uploader> My ID is: ~w~n", [self()]),
 	% TODO: handle errors
 	Response = network:recv(Sock, ""),
 	io:format("<worker> received request: ~s~n", [Response]),
-	
+	SPort = network:recv(Sock, ""),
+	SAddr = network:recv(Sock, ""),
+	io:format("<worker> sending file to: ~w at port: ~s ~n", [SAddr, SPort]),
 	% sleep in order to let the other worker get ready for us
+	{LPort, []} = string:to_integer(SPort),
+	Addr = utils:string_to_ip(SAddr),
 	timer:sleep(1000),
-	
-	{ok, SSock} = network:conn("localhost", 4567),
+	{ok, SSock} = network:conn(Addr, LPort),
 	network:send(SSock, "Key", "AwesomePiece"),
 	network:close(SSock),
 	
 	io:format("<worker> closing connection to drone~n"),
 	network:close(Sock),
-	eol.
+	ok.
 	
 %% @doc Handles an incoming piece
 %% <p>
@@ -106,7 +134,7 @@ send_piece(Sock) ->
 %% </p>
 accept_piece(Sock) ->
 	io:format("<worker> incoming piece from worker~n"),
-	
+	io:format("<downloader> My ID is: ~w~n", [self()]),
 	% TODO: handle errors
 	Response = network:recv(Sock, ""),
 	io:format("<worker> received piece: ~s~n", [Response]),

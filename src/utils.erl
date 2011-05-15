@@ -6,7 +6,7 @@
 %% bla bla bla
 
 -module(utils).
--export([generate_content_string/1, generate_content_list/1, list_to_string/2, parse_content_tuple/1]).
+-export([generate_content_string/1, generate_content_list/1, list_to_string/2, parse_content_tuple/1, strings_to_ints/1, string_to_ip/1]).
 -include_lib("eunit/include/eunit.hrl").
 
 %% @doc Generates a string from a content list.
@@ -98,6 +98,24 @@ list_to_string([H|T], Sep) ->
 	lists:append(lists:append([lists:concat([H]), Sep], [list_to_string(T, Sep)])).
 
 
+%% @doc Creates an IP Address tuple out of a string list.
+%% <p>
+%% </p>
+string_to_ip(L) -> string_to_ip([], L).
+
+string_to_ip(L, []) -> erlang:list_to_tuple(L);
+string_to_ip(I, L) ->
+case string:to_integer(L) of 
+	{error, Reason} -> 
+		[H | T] = L,	
+		string_to_ip(I, T);
+	{I1, Rest} -> 
+		%io:format("Whats in here? ~w ~n", [I1]),
+		L2 = lists:append(I, [I1]),
+		string_to_ip(L2, Rest)
+	end.	
+
+
 %%--- TEST CASES ---
 list_to_string_test() ->
 	?assert(list_to_string([], ",") =:= []),
@@ -142,4 +160,6 @@ content_test() ->
 	],
 	ContentString = "file1\t3\t1,2\nfile2\t2\tall\nfile3\t3\t1",
 	?assert(generate_content_string(generate_content_list(ContentString)) =:= ContentString).
-	
+
+string_to_ip_test() ->
+	?assert(string_to_ip([123,49,50,55,44,48,44,48,44,49,125]) =:= {127,0,0,1}).	

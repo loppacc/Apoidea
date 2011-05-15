@@ -7,8 +7,8 @@
 %% </p>
 
 -module(network).
--export([conn/2, send/3, send/5, recv/2, listen/2, close/1, handshake/1]).
--define(TCPOPTS, [list, {active, false}, {packet, 0}]).
+-export([conn/2, send/3, send/5, recv/2, listen/2, listen/3, listenInit/1,	close/1, handshake/1]).
+-define(TCPOPTS, [list, {active, false}, {packet, 0}, {reuseaddr, true}]).
 -define(UDPOPTS, [list, {active, false}, {packet, 0}]).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -118,6 +118,8 @@ recv(Sock, Key) ->
 %% Callback when a connection is accepted.
 %% </p>
 listen(Port, Callback) ->
+	io:format("<<<Listening initated by: ~w on port: ~w >>>~n", [self(), Port]),
+	timer:sleep(1000),
 	case gen_tcp:listen(Port, ?TCPOPTS) of
 		{error, Reason} -> {error, report_error(Reason)};
 		{ok, Sock} -> listen(sock, Sock, Callback)
@@ -129,16 +131,28 @@ listen(Port, Callback) ->
 %% Callback when a connection is accepted.
 %% </p>
 listen(sock, ListenSock, Callback) ->
+	io:format("Listening. . . by: ~w ~n", [self()]),
 	case gen_tcp:accept(ListenSock) of
 		{error, Reason} -> {error, report_error(Reason)};
 		
 		{ok, Sock} ->
-			case Callback(Sock) of
+			case Callback(Sock) of %spawn 
 				ok -> listen(sock, ListenSock, Callback);
 				eol -> eol
 			end
 	end.
-	
+
+%% @doc Initiating a listen
+%% <p>
+%% Listens on Port, and returns the Listen Socket.
+%% </p>
+listenInit(Port) ->
+	case gen_tcp:listen(Port, ?TCPOPTS) of
+		{error, Reason} -> {error, report_error(Reason)};
+        {ok, Sock} -> Sock
+	end.
+
+
 %% @doc Closes a socket
 %% <p>
 %% Closes the connection over Sock.
